@@ -1,9 +1,10 @@
+import datetime
+
 import requests
 from bs4 import BeautifulSoup
 
-from config import NEWS_WEBSITE_LINK
-
-STRAITS_TIMES_HOME = NEWS_WEBSITE_LINK["straits_times"]
+from config import SGT
+from db import DataBase
 
 
 class WebScrapper(object):
@@ -16,7 +17,7 @@ class WebScrapper(object):
 		self.page = None
 		self.html = None
 		self.article_links= {}
-		self.articles = {}
+		self.articles = []
 
 	def _has_page(self):
 		if self.page:
@@ -70,51 +71,96 @@ class WebScrapper(object):
 	def retrieve_article_links(self):
 		return self.article_links
 
-	def _get_article_title(self, article_html):
-		title = article_html.select("h1.headline.node-title")
-		title = title[0].text
+	def _get_article_title(self, article_html, link):
+		try:
+			title = article_html.select("h1.headline.node-title")
+			title = title[0].text
 
-		return title
+			return title
+		
+		except Exception as e:
+			print(e)
+			print(link)
 
-	def _get_article_content(self, article_html):
-		article = article_html.find("div", class_="odd field-item", itemprop="articleBody")
-		article = article.select("p")
-		article = " ".join([para.text for para in article])
-		article = article.replace("\n", "")
-		#article = article.replace("\\", "")
+	def _get_article_content(self, article_html, link):
+		try:
+			article = article_html.find("div", class_="odd field-item", itemprop="articleBody")
 
-		return article
+			if article is None:
+				article = article_html.find("div", class_="odd field-item")
 
-	def _get_author(self, article_html):
+			article = article.select("p")
+			article = " ".join([para.text for para in article])
+			article = article.replace("\n", "")
+
+			return article
+
+		except Exception as e:
+			print(e)
+			print(link)
+
+	def _get_author(self, article_html, link):
 		author = article_html.select("div.field-byline")
 
-		if len(author) == 0:
-			return None, None
+		try:
+			if len(author) == 0:
+				return None, None
 
-		author = author[0]
+			author = author[0]
 
-		author_page = author.find("a", href=True)["href"]
-		author = author.find("a").text
 
-		return author, author_page
+			author_page = author.find("a", href=True)
 
-	def _get_article_date(self, article_html):
-		date = article_html.select("div.story-postdate")[0].text
-		date = date.replace("Published", "")
+			if author_page:
+				author_page = author_page["href"]
+				author_page = self.home_link + author_page
+				author = author.find("a").text
 
-		return date
+			else:
+				author = author.text
+				author = author.split("For")[0].strip()
+				author_page = None
+
+			return author, author_page
+		
+		except Exception as e:
+			print(e)
+			print(link)
+
+	def _get_article_date(self, article_html, link):
+		try:
+			date = article_html.select("div.story-postdate")[0].text
+			date = date.replace("Published", "")
+			date = date.replace(" SGT", "")
+			date = date.replace(":\xa0", "")
+
+			if "hours" in date:
+				hours_ago = date.replace(" hours ago", "")
+				hours_ago = int(hours_ago)
+
+				date = datetime.datetime.now() - datetime.timedelta(hours=hours_ago)
+				date = date.astimezone(SGT)
+
+			else:
+				date = datetime.datetime.strptime(date, "%b %d, %Y, %H:%M %p")
+
+			return date
+
+		except Exception as e:
+			print(e)
+			print(link)
 
 	def _get_article(self, link):
 		article_page = requests.get(link, stream=True, headers={"User-Agent": "Mozilla/5.0"})
 
 		if article_page.status_code == 200:
 			article_html = BeautifulSoup(article_page.content, self.parser)
-			title = self._get_article_title(article_html=article_html)
-			author, author_page = self._get_author(article_html=article_html)
-			date = self._get_article_date(article_html=article_html)
-			content = self._get_article_content(article_html=article_html)
+			title = self._get_article_title(article_html=article_html, link=link)
+			author, author_page = self._get_author(article_html=article_html, link=link)
+			date = self._get_article_date(article_html=article_html, link=link)
+			content = self._get_article_content(article_html=article_html, link=link)
 
-		return {"title": title, "author": author, "author_page": author_page, "date": date, "content": content, "link": link}
+		return {"_id": title, "author": author, "author_page": author_page, "date": date, "content": content, "link": link}
 
 	def get_articles(self):
 		if self.site == "straits_times":
@@ -126,17 +172,9 @@ class WebScrapper(object):
 					article = self._get_article(link=link)
 					article["category"] = category
 
-					title = article["title"]
-					self.articles[title] = article
-
-straits_times_scrapper = WebScrapper(link=STRAITS_TIMES_HOME, site="straits_times", parser="html.parser")
-straits_times_scrapper.get_page()
-straits_times_scrapper.parse_page()
-straits_times_scrapper.get_article_links()
-straits_times_scrapper.get_articles()
+					self.articles.append(article)
 
 
-print(straits_times_scrapper.articles)
 
 
 
