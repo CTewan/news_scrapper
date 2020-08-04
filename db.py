@@ -28,10 +28,11 @@ class DataBase(object):
 
 	def insert_data(self, collection, data):
 		if type(data) == dict:
-			collection.insert_one(data)
+			collection.update_one({"_id": data["_id"]}, {"$set": data}, upsert=True)
 
 		elif type(data) == list:
-			collection.insert_many(data)
+			for update_dict in data:
+				collection.update_one({"_id": update_dict["_id"]}, {"$set": update_dict}, upsert=True)
 
 if __name__ == "__main__":
 	news_db = DataBase()
